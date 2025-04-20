@@ -74,15 +74,35 @@ impl<K: Ord> MinHeap<K> {
 
     // bubble an item down
     pub fn bubble_down(&mut self, mut index: usize) {
-        while index < self.heap.len() {
+        let heap_len = self.heap.len();
+
+        loop {
             let left_child = (2 * index) + 1;
             let right_child = (2 * index) + 2;
-
-            if self.heap[index].1 > self.heap[left_child].1 {
-                self.heap.swap(index, left_child);
+            //check if there is a left child
+            if left_child >= heap_len {
+                // no children
+                break;
             }
-            if self.heap[index].1 > self.heap[right_child].1 {
-                self.heap.swap(index, right_child);
+            // check which child is smaller
+            let smaller_child: usize;
+            if self.heap[right_child].1 < self.heap[left_child].1 && right_child < heap_len {
+                smaller_child = right_child;
+            } else {
+                smaller_child = left_child;
+            }
+
+            // if the smallest child is smaller than the current swap
+            if self.heap[smaller_child].1 < self.heap[index].1 {
+                self.heap.swap(smaller_child, index);
+
+                let child_id = self.heap[smaller_child].0;
+                let parent_id = self.heap[index].0;
+
+                self.positions[parent_id] = index;
+                self.positions[child_id] = smaller_child;
+
+                index = smaller_child;
             } else {
                 break;
             }
@@ -129,5 +149,28 @@ mod tests {
         assert_eq!(mh.positions.len(), 6);
         assert_eq!(mh.positions[3], 0);
         assert_eq!(mh.positions[5], 1);
+    }
+
+    #[test]
+    fn test_bubble_up_manual() {
+        let mut mh: MinHeap<i32> = MinHeap::new();
+
+        // Manually create a two‑element heap that violates the heap property:
+        // root has key 10, child has key 5.
+        mh.heap = vec![(0, 10), (1, 5)];
+        // positions must match that layout:
+        mh.positions = vec![0, 1];
+
+        // Bubble up the element at index 1 (the child) so the smaller key rises to the root
+        mh.bubble_up(1);
+
+        // After bubbling up:
+        // - the heap array has been reordered
+        assert_eq!(mh.heap[0], (1, 5));
+        assert_eq!(mh.heap[1], (0, 10));
+
+        // - positions has been updated accordingly
+        assert_eq!(mh.positions[1], 0);
+        assert_eq!(mh.positions[0], 1);
     }
 }
