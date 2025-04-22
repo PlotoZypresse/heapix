@@ -16,6 +16,37 @@ impl<K: Ord> MinHeap<K> {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.heap.is_empty()
+    }
+
+    // build min heap from an unsorted vec of (item_id, key)
+    pub fn build_heap(mut items: Vec<(usize, K)>) -> Self {
+        let mut heap = items;
+
+        // find size of positions array
+        let pos_max = heap.iter().map(|(id, _)| *id).max().unwrap_or(0);
+
+        let mut positions = vec![usize::MAX; pos_max + 1];
+
+        // create positions so that position[id] is the items index in the heap
+        for (idx, (id, _)) in heap.iter().enumerate() {
+            positions[*id] = idx;
+        }
+
+        // create a MinHeap instance
+        let mut min_heap = MinHeap { heap, positions };
+
+        let n = min_heap.heap.len();
+        if n > 1 {
+            for i in (0..=(n / 2 - 1)).rev() {
+                min_heap.bubble_down(i);
+            }
+        }
+
+        min_heap
+    }
+
     // inserts a value and moves it to the right place
     pub fn insert(&mut self, item: (usize, K)) {
         // add item to the heap
@@ -133,6 +164,12 @@ impl<K: Ord> MinHeap<K> {
             }
         }
     }
+
+    pub fn decrease_key(&mut self, id: usize, new_key: K) {
+        let pos_id = self.positions[id];
+        self.heap[pos_id].1 = new_key;
+        self.bubble_up(pos_id);
+    }
 }
 
 #[cfg(test)]
@@ -221,5 +258,39 @@ mod tests {
         let order: Vec<_> = (0..3).map(|_| mh.delete_min().unwrap()).collect();
         assert_eq!(order, vec![(5, 5), (3, 15), (2, 25)]);
         assert!(mh.delete_min().is_none());
+    }
+
+    #[test]
+    fn test_build_heap() {
+        let items = vec![(2, 50), (0, 10), (3, 20), (1, 5)];
+        let mut mh = MinHeap::build_heap(items);
+        assert_eq!(*mh.get_min().unwrap(), (1, 5));
+        assert_eq!(mh.positions[1], 0);
+        assert_eq!(mh.heap.len(), 4);
+        let order: Vec<_> = (0..4).map(|_| mh.delete_min().unwrap()).collect();
+        assert_eq!(order, vec![(1, 5), (0, 10), (3, 20), (2, 50)]);
+        assert!(mh.delete_min().is_none());
+    }
+
+    #[test]
+    fn test_is_empty() {
+        let mut mh: MinHeap<i32> = MinHeap::new();
+        assert!(mh.is_empty());
+        mh.insert((0, 100));
+        assert!(!mh.is_empty());
+        mh.delete_min();
+        assert!(mh.is_empty());
+    }
+
+    #[test]
+    fn test_decrease_key() {
+        let mut mh: MinHeap<i32> = MinHeap::new();
+        mh.insert((0, 100));
+        mh.insert((1, 200));
+        mh.insert((2, 300));
+        assert_eq!(*mh.get_min().unwrap(), (0, 100));
+        mh.decrease_key(2, 50);
+        assert_eq!(*mh.get_min().unwrap(), (2, 50));
+        assert_eq!(mh.positions[2], 0);
     }
 }
