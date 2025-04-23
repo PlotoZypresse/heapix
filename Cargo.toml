@@ -2,5 +2,14 @@
 name = "heapify"
 version = "0.1.0"
 edition = "2021"
+authors = ["PlotoZypresse"]
+description = "A library providing heap data structures"
+repository = "https://github.com/PlotoZypresse/heapify"
+homepage = "https://github.com/PlotoZypresse/heapify"
+license = "MIT"
+license-file = "LICENSE"
+keywords = ["heap", "priority-queue", "datastructure"]
+categories = ["data-structures"]
+
 
 [dependencies]

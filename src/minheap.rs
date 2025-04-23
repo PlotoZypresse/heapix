@@ -21,8 +21,8 @@ impl<K: Ord> MinHeap<K> {
     }
 
     // build min heap from an unsorted vec of (item_id, key)
-    pub fn build_heap(mut items: Vec<(usize, K)>) -> Self {
-        let mut heap = items;
+    pub fn build_heap(items: Vec<(usize, K)>) -> Self {
+        let heap = items;
 
         // find size of positions array
         let pos_max = heap.iter().map(|(id, _)| *id).max().unwrap_or(0);

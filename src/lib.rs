@@ -1,16 +1,18 @@
 mod minheap;
-
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub use minheap::MinHeap;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::MinHeap;
 
     #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+    fn basic_minheap_ops() {
+        let mut h = MinHeap::new();
+        h.insert((0, 10));
+        h.insert((1, 5));
+        assert_eq!(*h.get_min().unwrap(), (1, 5));
+        let popped = h.delete_min().unwrap();
+        assert_eq!(popped, (1, 5));
+        assert_eq!(*h.get_min().unwrap(), (0, 10));
     }
 }
