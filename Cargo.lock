@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "heapify"
+name = "heapix"
 version = "0.1.0"
