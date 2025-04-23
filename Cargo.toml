@@ -9,6 +9,7 @@ homepage = "https://github.com/PlotoZypresse/heapify"
 license = "MIT"
 keywords = ["heap", "priority-queue", "datastructure"]
 categories = ["data-structures"]
+readme = "README.md"
 
 
 [dependencies]
