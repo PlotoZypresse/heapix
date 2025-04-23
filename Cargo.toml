@@ -7,7 +7,6 @@ description = "A library providing heap data structures"
 repository = "https://github.com/PlotoZypresse/heapify"
 homepage = "https://github.com/PlotoZypresse/heapify"
 license = "MIT"
-license-file = "LICENSE"
 keywords = ["heap", "priority-queue", "datastructure"]
 categories = ["data-structures"]
 
