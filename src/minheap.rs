@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::usize;
 
 pub struct MinHeap<K> {
@@ -7,7 +8,7 @@ pub struct MinHeap<K> {
     positions: Vec<usize>,
 }
 
-impl<K: Ord> MinHeap<K> {
+impl<K: PartialOrd + Copy> MinHeap<K> {
     // New minheap
     pub fn new() -> Self {
         MinHeap {
@@ -110,7 +111,12 @@ impl<K: Ord> MinHeap<K> {
         while index > 0 {
             let parent = (index - 1) / 2;
 
-            if self.heap[index].1 < self.heap[parent].1 {
+            if self.heap[index]
+                .1
+                .partial_cmp(&self.heap[parent].1)
+                .unwrap()
+                == Ordering::Less
+            {
                 // swap child and parent
                 self.heap.swap(index, parent);
 
@@ -142,14 +148,25 @@ impl<K: Ord> MinHeap<K> {
             }
             // check which child is smaller
             let smaller_child: usize;
-            if right_child < heap_len && self.heap[right_child].1 < self.heap[left_child].1 {
+            if right_child < heap_len
+                && self.heap[right_child]
+                    .1
+                    .partial_cmp(&self.heap[left_child].1)
+                    .unwrap()
+                    == Ordering::Less
+            {
                 smaller_child = right_child;
             } else {
                 smaller_child = left_child;
             }
 
             // if the smallest child is smaller than the current swap
-            if self.heap[smaller_child].1 < self.heap[index].1 {
+            if self.heap[smaller_child]
+                .1
+                .partial_cmp(&self.heap[index].1)
+                .unwrap()
+                == Ordering::Less
+            {
                 let child_id = self.heap[smaller_child].0;
                 let parent_id = self.heap[index].0;
 
@@ -292,5 +309,40 @@ mod tests {
         mh.decrease_key(2, 50);
         assert_eq!(*mh.get_min().unwrap(), (2, 50));
         assert_eq!(mh.positions[2], 0);
+    }
+
+    #[test]
+    fn test_float_keys_basic() {
+        let mut mh: MinHeap<f64> = MinHeap::new();
+        mh.insert((0, 3.14));
+        mh.insert((1, 2.71));
+        mh.insert((2, -1.0));
+
+        // The minimum should be the -1.0 entry
+        assert_eq!(mh.get_min(), Some(&(2, -1.0)));
+
+        // Deleting all in order should yield increasing keys
+        let mut seq = Vec::new();
+        while let Some((id, key)) = mh.delete_min() {
+            seq.push((id, key));
+        }
+        assert_eq!(seq, vec![(2, -1.0), (1, 2.71), (0, 3.14),]);
+    }
+
+    #[test]
+    fn test_float_decrease_key() {
+        let mut mh: MinHeap<f64> = MinHeap::new();
+        mh.insert((0, 10.0));
+        mh.insert((1, 20.0));
+
+        // Lower the key of id=1 below id=0’s key
+        mh.decrease_key(1, 5.0);
+        assert_eq!(mh.get_min(), Some(&(1, 5.0)));
+
+        // And deleting-min should respect that
+        let first = mh.delete_min().unwrap();
+        let second = mh.delete_min().unwrap();
+        assert_eq!(first, (1, 5.0));
+        assert_eq!(second, (0, 10.0));
     }
 }
