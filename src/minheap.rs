@@ -21,6 +21,10 @@ impl<K: PartialOrd + Copy> MinHeap<K> {
         self.heap.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.heap.len()
+    }
+
     // build min heap from an unsorted vec of (item_id, key)
     pub fn build_heap(items: Vec<(usize, K)>) -> Self {
         let heap = items;
