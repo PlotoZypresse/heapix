@@ -25,6 +25,15 @@ impl<K: PartialOrd + Copy> MinHeap<K> {
         self.heap.len()
     }
 
+    pub fn clear(&mut self) {
+        // For every (id, key) we’ve stored, mark its position back to “not in heap”
+        for &(id, _) in &self.heap {
+            self.positions[id] = usize::MAX;
+        }
+        // Then clear the underlying vector
+        self.heap.clear();
+    }
+
     // build min heap from an unsorted vec of (item_id, key)
     pub fn build_heap(items: Vec<(usize, K)>) -> Self {
         let heap = items;
