@@ -184,14 +184,22 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 
     fn add_to_root(&mut self, idx: usize) {
-        if let Some(r) = self.min_root {
-            let l = self.nodes[r].left;
-            self.nodes[idx].left = l;
-            self.nodes[idx].right = r;
-            self.nodes[l].right = idx;
-            self.nodes[r].left = idx;
+        if let Some(min_idx) = self.min_root {
+            // splice idx before the current min
+            let left = self.nodes[min_idx].left;
+            self.nodes[idx].left = left;
+            self.nodes[idx].right = min_idx;
+            self.nodes[left].right = idx;
+            self.nodes[min_idx].left = idx;
+
+            /* ---------- NEW ---------- */
+            // keep the pointer on the smallest key
+            if self.nodes[idx].entry.1 < self.nodes[min_idx].entry.1 {
+                self.min_root = Some(idx);
+            }
+            /* -------------------------- */
         } else {
-            self.min_root = Some(idx);
+            self.min_root = Some(idx); // first root in the ring
         }
     }
 
