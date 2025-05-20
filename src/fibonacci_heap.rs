@@ -257,13 +257,12 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
 
     /* ---------- consolidate --------------------------------------------- */
 
+    /// Consolidate the root list: combine trees of equal degree until each
+    /// degree occurs at most once.
     fn consolidate(&mut self) {
         let Some(start) = self.min_root else { return };
 
-        let max_deg = (self.n as f64).log2().ceil() as usize + 2;
-        let mut aux: Vec<Option<usize>> = vec![None; max_deg];
-
-        /* gather current root indices */
+        /* ---------- 1. gather all current roots ---------- */
         let mut roots = Vec::new();
         let mut w = start;
         loop {
@@ -274,7 +273,11 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
             }
         }
 
-        /* meld equal-degree trees */
+        /* aux[d] will hold at most one root of degree d */
+        let max_deg = (self.n as f64).log2().ceil() as usize + 2;
+        let mut aux: Vec<Option<usize>> = vec![None; max_deg];
+
+        /* ---------- 2. meld equal-degree trees ---------- */
         for mut x in roots {
             if self.nodes[x].parent.is_some() {
                 continue; // became a child earlier
@@ -285,7 +288,7 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
                     aux[d] = Some(x);
                     break;
                 }
-                let mut y = aux[d].take().unwrap();
+                let mut y = aux[d].take().unwrap(); // existing tree of same degree
                 if self.nodes[y]
                     .entry
                     .1
@@ -293,9 +296,9 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
                     .unwrap()
                     == Ordering::Less
                 {
-                    std::mem::swap(&mut x, &mut y);
+                    std::mem::swap(&mut x, &mut y); // make x the smaller-key root
                 }
-                self.link(y, x); // y under x
+                self.link(y, x); // y becomes child of x
                 d += 1;
                 if d >= aux.len() {
                     aux.resize(d + 1, None);
@@ -303,21 +306,21 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
             }
         }
 
-        /* rebuild a fresh circular root list */
-        self.min_root = None;
+        /* ---------- 3. rebuild ONE fresh root ring ---------- */
+        self.min_root = None; // we’ll discover the new min
         for idx in aux.into_iter().flatten() {
-            // isolate node
+            // isolate the node first
             self.nodes[idx].left = idx;
             self.nodes[idx].right = idx;
             self.nodes[idx].parent = None;
 
-            // splice into root ring & update min
+            // splice into root ring & update minimum pointer
             self.add_to_root(idx);
             self.update_min(idx);
         }
 
         #[cfg(debug_assertions)]
-        self.assert_root_ring();
+        self.assert_root_ring(); // O(roots) sanity check
     }
 
     #[cfg(debug_assertions)]
