@@ -292,22 +292,23 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 
     fn cut(&mut self, idx: usize, parent: usize) {
-        // If idx is the pointer stored in parent.child, fix that pointer first
+        // idx is leaving parent’s child list ─ make sure parent.child is valid
         if self.nodes[parent].child == Some(idx) {
             if self.nodes[idx].right == idx {
-                // idx was the only child
+                // idx was the only child  → parent will have no children now
                 self.nodes[parent].child = None;
             } else {
-                let next = self.nodes[idx].right; // save sibling **first**
-                self.detach(idx); // now safe to detach
+                // pick *the next sibling* as the new first child
+                let next = self.nodes[idx].right; // save BEFORE detach
+                self.detach(idx); // unlink from the list
                 self.nodes[parent].child = Some(next);
             }
         } else {
-            // idx isn’t the designated child pointer; just unlink it
+            // idx wasn’t the child pointer; just unlink it
             self.detach(idx);
         }
 
-        // bookkeeping
+        // update bookkeeping
         self.nodes[parent].degree -= 1;
         self.nodes[idx].parent = None;
         self.nodes[idx].mark = false;
