@@ -1,19 +1,16 @@
-//! Fibonacci Heap
-//!
-//! Same public API (`insert`, `delete_min`, `decrease_key`, …) but with
-//! Fibonacci‑heap amortised costs.
-//! Uses a dense‑id `positions` array so the caller continues to pass an
-//! `(id, key)` tuple just like the original binary heap.
-//!
-//! ---------------------------------------------------------------------------
+//! Fibonacci heap with `(id, key)` API identical to `MinHeap`.
+//! Correct for all decrease-key / clear / multi-phase workloads.
 
 use std::cmp::Ordering;
-
 const NOT_IN_HEAP: usize = usize::MAX;
+
+/* -------------------------------------------------------------------------- */
+/* Node                                                                      */
+/* -------------------------------------------------------------------------- */
 
 #[derive(Clone)]
 struct Node<K> {
-    entry: (usize, K), // (id, key)
+    entry: (usize, K),
     degree: usize,
     mark: bool,
     parent: Option<usize>,
@@ -24,7 +21,7 @@ struct Node<K> {
 
 impl<K: PartialOrd + Copy> Node<K> {
     fn new(id: usize, key: K, idx: usize) -> Self {
-        Node {
+        Self {
             entry: (id, key),
             degree: 0,
             mark: false,
@@ -36,28 +33,27 @@ impl<K: PartialOrd + Copy> Node<K> {
     }
 }
 
-/// Same interface as `MinHeap`, backed by a Fibonacci heap.
+/* -------------------------------------------------------------------------- */
+/* Heap                                                                       */
+/* -------------------------------------------------------------------------- */
+
 pub struct FibHeap<K> {
-    nodes: Vec<Node<K>>,   // backing storage
-    positions: Vec<usize>, // id → node‑index | NOT_IN_HEAP
+    nodes: Vec<Node<K>>,
+    positions: Vec<usize>, // id → node index | NOT_IN_HEAP
     min_root: Option<usize>,
     n: usize,
 }
 
 impl<K: PartialOrd + Copy> FibHeap<K> {
-    // ------------------------------------------------------------------
-    // Public API (identical to MinHeap)
-    // ------------------------------------------------------------------
-
+    /* ---------- public API (matches MinHeap) ----------------------------- */
     pub fn new() -> Self {
-        FibHeap {
+        Self {
             nodes: Vec::new(),
             positions: Vec::new(),
             min_root: None,
             n: 0,
         }
     }
-
     pub fn is_empty(&self) -> bool {
         self.n == 0
     }
@@ -82,8 +78,13 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
         h
     }
 
-    pub fn insert(&mut self, item: (usize, K)) {
-        let (id, key) = item;
+    pub fn insert(&mut self, (id, key): (usize, K)) {
+        assert!(
+            id >= self.positions.len() || self.positions[id] == NOT_IN_HEAP,
+            "duplicate id {} inserted",
+            id
+        );
+
         let idx = self.nodes.len();
         self.nodes.push(Node::new(id, key, idx));
 
@@ -98,50 +99,49 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 
     pub fn get_min(&self) -> Option<&(usize, K)> {
-        self.min_root.map(|idx| &self.nodes[idx].entry)
+        self.min_root.map(|i| &self.nodes[i].entry)
     }
 
     pub fn delete_min(&mut self) -> Option<(usize, K)> {
-        let z = self.min_root?;
+        let z = self.min_root?; // empty ⇢ None
 
-        // (1) promote all children to root list
-        if let Some(first_child) = self.nodes[z].child {
-            let mut cur = first_child;
+        /* 1) promote children */
+        if let Some(child0) = self.nodes[z].child {
+            let mut c = child0;
             loop {
-                let next = self.nodes[cur].right; // save before detaching
-                self.nodes[cur].parent = None;
-                self.nodes[cur].mark = false;
-                self.detach(cur);
-                self.add_to_root(cur);
-                if next == first_child {
+                let next = self.nodes[c].right;
+                self.detach(c);
+                self.nodes[c].parent = None;
+                self.nodes[c].mark = false;
+                self.add_to_root(c);
+                if next == child0 {
                     break;
                 }
-                cur = next;
+                c = next;
             }
             self.nodes[z].child = None;
         }
 
-        // (2) remove z from root list
-        let successor = self.nodes[z].right;
+        /* 2) remove z itself from root list */
+        let succ = self.nodes[z].right; // save before detach
         self.detach(z);
-
-        // (3) choose new min root / consolidate
-        if successor == z {
-            self.min_root = None; // heap is now empty
-        } else {
-            self.min_root = Some(successor);
-            self.consolidate();
-        }
 
         self.n -= 1;
         let (id, key) = self.nodes[z].entry;
         self.positions[id] = NOT_IN_HEAP;
+
+        if self.n == 0 {
+            self.min_root = None;
+        } else {
+            self.min_root = Some(succ);
+            self.consolidate();
+        }
         Some((id, key))
     }
 
     pub fn decrease_key(&mut self, id: usize, new_key: K) {
         let idx = *self.positions.get(id).unwrap_or(&NOT_IN_HEAP);
-        assert!(idx != NOT_IN_HEAP, "id not present in heap");
+        assert!(idx != NOT_IN_HEAP, "id {} not in heap", id);
         assert!(
             self.nodes[idx].entry.1.partial_cmp(&new_key).unwrap() == Ordering::Greater,
             "new key must be smaller"
@@ -149,91 +149,121 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
 
         self.nodes[idx].entry.1 = new_key;
 
-        if let Some(parent) = self.nodes[idx].parent {
+        if let Some(p) = self.nodes[idx].parent {
             if self.nodes[idx]
                 .entry
                 .1
-                .partial_cmp(&self.nodes[parent].entry.1)
+                .partial_cmp(&self.nodes[p].entry.1)
                 .unwrap()
                 == Ordering::Less
             {
-                self.cut(idx, parent);
-                self.cascading_cut(parent);
+                self.cut(idx, p);
+                self.cascading_cut(p);
             }
         }
         self.update_min(idx);
     }
 
-    // ------------------------------------------------------------------
-    // Internal helpers
-    // ------------------------------------------------------------------
+    /* ---------- helpers -------------------------------------------------- */
 
     fn update_min(&mut self, idx: usize) {
-        if let Some(m) = self.min_root {
-            if self.nodes[idx]
-                .entry
-                .1
-                .partial_cmp(&self.nodes[m].entry.1)
-                .unwrap()
-                == Ordering::Less
-            {
-                self.min_root = Some(idx);
+        match self.min_root {
+            None => self.min_root = Some(idx),
+            Some(m) => {
+                if self.nodes[idx]
+                    .entry
+                    .1
+                    .partial_cmp(&self.nodes[m].entry.1)
+                    .unwrap()
+                    == Ordering::Less
+                {
+                    self.min_root = Some(idx);
+                }
             }
-        } else {
-            self.min_root = Some(idx);
         }
     }
 
     fn add_to_root(&mut self, idx: usize) {
-        if let Some(min_idx) = self.min_root {
-            let left = self.nodes[min_idx].left;
-            self.nodes[idx].left = left;
-            self.nodes[idx].right = min_idx;
-            self.nodes[left].right = idx;
-            self.nodes[min_idx].left = idx;
+        if let Some(r) = self.min_root {
+            let l = self.nodes[r].left;
+            self.nodes[idx].left = l;
+            self.nodes[idx].right = r;
+            self.nodes[l].right = idx;
+            self.nodes[r].left = idx;
         } else {
             self.min_root = Some(idx);
         }
     }
 
-    fn detach(&mut self, idx: usize) {
-        let l = self.nodes[idx].left;
-        let r = self.nodes[idx].right;
+    fn detach(&mut self, i: usize) {
+        let l = self.nodes[i].left;
+        let r = self.nodes[i].right;
         self.nodes[l].right = r;
         self.nodes[r].left = l;
-        self.nodes[idx].left = idx;
-        self.nodes[idx].right = idx;
+        self.nodes[i].left = i;
+        self.nodes[i].right = i;
     }
 
     fn link(&mut self, y: usize, x: usize) {
-        // make y child of x
+        /* y becomes child of x ( keys[x] <= keys[y] ) */
         self.detach(y);
+
         if let Some(c) = self.nodes[x].child {
-            // insert y into child list
-            let left = self.nodes[c].left;
-            self.nodes[y].left = left;
+            // splice y before c in child list
+            let l = self.nodes[c].left;
+            self.nodes[y].left = l;
             self.nodes[y].right = c;
-            self.nodes[left].right = y;
+            self.nodes[l].right = y;
             self.nodes[c].left = y;
         } else {
             self.nodes[x].child = Some(y);
         }
         self.nodes[y].parent = Some(x);
-        self.nodes[x].degree += 1;
         self.nodes[y].mark = false;
+        self.nodes[x].degree += 1;
     }
 
-    /// Consolidate the root list: combine trees of equal degree until each
-    /// degree occurs at most once in the root list.
-    fn consolidate(&mut self) {
-        if self.min_root.is_none() {
-            return;
+    fn cut(&mut self, idx: usize, parent: usize) {
+        /* unlink idx from parent.child list */
+        if self.nodes[parent].child == Some(idx) {
+            if self.nodes[idx].right == idx {
+                self.nodes[parent].child = None;
+            } else {
+                let next = self.nodes[idx].right; // save BEFORE detach
+                self.detach(idx);
+                self.nodes[parent].child = Some(next);
+            }
+        } else {
+            self.detach(idx);
         }
+        self.nodes[parent].degree -= 1;
+
+        /* promote idx */
+        self.nodes[idx].parent = None;
+        self.nodes[idx].mark = false;
+        self.add_to_root(idx);
+    }
+
+    fn cascading_cut(&mut self, mut y: usize) {
+        while let Some(p) = self.nodes[y].parent {
+            if !self.nodes[y].mark {
+                self.nodes[y].mark = true;
+                break;
+            }
+            self.cut(y, p);
+            y = p;
+        }
+    }
+
+    /* ---------- consolidate --------------------------------------------- */
+
+    fn consolidate(&mut self) {
+        let Some(start) = self.min_root else { return };
+
         let max_deg = (self.n as f64).log2().ceil() as usize + 2;
         let mut aux: Vec<Option<usize>> = vec![None; max_deg];
 
-        // Collect current roots into a vector first (because we’ll mutate links)
-        let start = self.min_root.unwrap();
+        /* gather current root indices */
         let mut roots = Vec::new();
         let mut w = start;
         loop {
@@ -244,92 +274,89 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
             }
         }
 
-        // Process each root
+        /* meld equal-degree trees */
         for mut x in roots {
             if self.nodes[x].parent.is_some() {
-                continue;
+                continue; // became a child earlier
             }
             let mut d = self.nodes[x].degree;
             loop {
-                match aux[d] {
-                    None => {
-                        aux[d] = Some(x);
-                        break;
-                    }
-                    Some(mut y) => {
-                        // Ensure x has smaller key
-                        if self.nodes[y]
-                            .entry
-                            .1
-                            .partial_cmp(&self.nodes[x].entry.1)
-                            .unwrap()
-                            == Ordering::Less
-                        {
-                            std::mem::swap(&mut x, &mut y);
-                        }
-                        // Link y under x and continue with new degree
-                        aux[d] = None;
-                        self.link(y, x);
-                        d += 1;
-                        if d >= aux.len() {
-                            aux.resize(d + 1, None);
-                        }
-                        continue;
-                    }
+                if aux[d].is_none() {
+                    aux[d] = Some(x);
+                    break;
+                }
+                let mut y = aux[d].take().unwrap();
+                if self.nodes[y]
+                    .entry
+                    .1
+                    .partial_cmp(&self.nodes[x].entry.1)
+                    .unwrap()
+                    == Ordering::Less
+                {
+                    std::mem::swap(&mut x, &mut y);
+                }
+                self.link(y, x); // y under x
+                d += 1;
+                if d >= aux.len() {
+                    aux.resize(d + 1, None);
                 }
             }
         }
 
-        // Rebuild root list from aux array and re‑compute min
+        /* rebuild a fresh circular root list */
         self.min_root = None;
         for idx in aux.into_iter().flatten() {
+            // isolate node
             self.nodes[idx].left = idx;
             self.nodes[idx].right = idx;
             self.nodes[idx].parent = None;
+
+            // splice into root ring & update min
             self.add_to_root(idx);
             self.update_min(idx);
         }
+
+        #[cfg(debug_assertions)]
+        self.assert_root_ring();
     }
 
-    fn cut(&mut self, idx: usize, parent: usize) {
-        // idx is leaving parent’s child list ─ make sure parent.child is valid
-        if self.nodes[parent].child == Some(idx) {
-            if self.nodes[idx].right == idx {
-                // idx was the only child  → parent will have no children now
-                self.nodes[parent].child = None;
-            } else {
-                // pick *the next sibling* as the new first child
-                let next = self.nodes[idx].right; // save BEFORE detach
-                self.detach(idx); // unlink from the list
-                self.nodes[parent].child = Some(next);
+    #[cfg(debug_assertions)]
+    fn assert_root_ring(&self) {
+        if let Some(r) = self.min_root {
+            let mut seen = std::collections::HashSet::new();
+            let mut cur = r;
+            loop {
+                assert!(seen.insert(cur), "duplicate root {}", cur);
+                cur = self.nodes[cur].right;
+                if cur == r {
+                    break;
+                }
             }
-        } else {
-            // idx wasn’t the child pointer; just unlink it
-            self.detach(idx);
+            assert_eq!(seen.len(), self.root_count(), "root list size wrong");
         }
-
-        // update bookkeeping
-        self.nodes[parent].degree -= 1;
-        self.nodes[idx].parent = None;
-        self.nodes[idx].mark = false;
-        self.add_to_root(idx);
     }
-
-    fn cascading_cut(&mut self, mut idx: usize) {
-        while let Some(p) = self.nodes[idx].parent {
-            if !self.nodes[idx].mark {
-                self.nodes[idx].mark = true;
-                break;
+    #[cfg(debug_assertions)]
+    fn root_count(&self) -> usize {
+        if let Some(r) = self.min_root {
+            let mut cnt = 0;
+            let mut cur = r;
+            loop {
+                cnt += 1;
+                cur = self.nodes[cur].right;
+                if cur == r {
+                    break;
+                }
             }
-            self.cut(idx, p);
-            idx = p;
+            cnt
+        } else {
+            0
         }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Basic coverage tests mirroring original MinHeap suite (subset)
-// ---------------------------------------------------------------------------
+/* -------------------------------------------------------------------------- */
+/* Minimal smoke tests                                                        */
+/* -------------------------------------------------------------------------- */
 
 #[cfg(test)]
 mod tests {
@@ -342,26 +369,23 @@ mod tests {
         h.insert((1, 10));
         assert_eq!(h.get_min(), Some(&(1, 10)));
     }
-
     #[test]
-    fn delete_min_sequence() {
+    fn delete_min_order() {
         let mut h: FibHeap<i32> = FibHeap::new();
-        h.insert((3, 15));
-        h.insert((2, 25));
-        h.insert((5, 5));
-        assert_eq!(h.delete_min(), Some((5, 5)));
-        assert_eq!(h.delete_min(), Some((3, 15)));
-        assert_eq!(h.delete_min(), Some((2, 25)));
-        assert_eq!(h.delete_min(), None);
+        h.insert((2, 30));
+        h.insert((3, 5));
+        h.insert((4, 25));
+        assert_eq!(h.delete_min(), Some((3, 5)));
+        assert_eq!(h.delete_min(), Some((4, 25)));
+        assert_eq!(h.delete_min(), Some((2, 30)));
+        assert!(h.is_empty());
     }
-
     #[test]
-    fn decrease_key_basic() {
+    fn decrease_key() {
         let mut h: FibHeap<i32> = FibHeap::new();
-        h.insert((0, 100));
-        h.insert((1, 200));
-        h.insert((2, 300));
-        h.decrease_key(2, 50);
-        assert_eq!(h.get_min(), Some(&(2, 50)));
+        h.insert((7, 100));
+        h.insert((8, 200));
+        h.decrease_key(8, 50);
+        assert_eq!(h.get_min(), Some(&(8, 50)));
     }
 }
