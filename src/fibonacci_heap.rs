@@ -357,6 +357,32 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 }
 
+#[cfg(debug_assertions)]
+impl<K: PartialOrd + Copy + std::fmt::Debug> FibHeap<K> {
+    /// O(total_nodes) scan that asserts both:
+    ///   – the node removed by delete_min really had the global min key
+    ///   – every parent key ≤ its children’s keys
+    pub fn assert_heap_ok(&self, last_key: K) {
+        for (i, node) in self.nodes.iter().enumerate() {
+            if self.positions[node.entry.0] == NOT_IN_HEAP {
+                continue; // node is already deleted
+            }
+            let k = node.entry.1;
+            assert!(
+                k >= last_key,
+                "heap-order error: node #{i} key {k:?} < last pop {last_key:?}"
+            );
+            if let Some(p) = node.parent {
+                let pk = self.nodes[p].entry.1;
+                assert!(
+                    pk <= k,
+                    "child key {k:?} < parent key {pk:?} (node #{i} → parent #{p})"
+                );
+            }
+        }
+    }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Minimal smoke tests                                                        */
 /* -------------------------------------------------------------------------- */
