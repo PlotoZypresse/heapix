@@ -103,42 +103,43 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 
     pub fn delete_min(&mut self) -> Option<(usize, K)> {
-        /* 0) nothing to do if the heap is empty */
-        let z = self.min_root?; // returns None when empty
+        /* 0) empty heap? */
+        let z = self.min_root?; // return None if empty
 
         /* 1) promote every child of z to the root list */
-        if let Some(child0) = self.nodes[z].child {
-            let mut c = child0;
+        if let Some(mut child) = self.nodes[z].child {
             loop {
-                let next = self.nodes[c].right; // save before detach
-                self.detach(c); // unlink from child list
-                self.nodes[c].parent = None;
-                self.nodes[c].mark = false;
-                self.add_to_root(c); // add to root ring
-                if next == child0 {
+                let next = self.nodes[child].right; // save before detach
+                self.detach(child); // unlink from child list
+                self.nodes[child].parent = None;
+                self.nodes[child].mark = false;
+                self.add_to_root(child); // add to root ring
+                if next == child {
                     break;
-                }
-                c = next;
+                } // finished full circle
+                child = next;
             }
             self.nodes[z].child = None;
         }
 
         /* 2) remove z itself from the root list */
-        let succ = self.nodes[z].right; // successor root
-        self.detach(z); // unlink z
+        let successor = self.nodes[z].right; // neighbour root
+        self.detach(z);
 
-        /* 3) book-keeping for the item we’re returning */
+        /* 3) book-keeping for the item we return */
         self.n -= 1;
         let (id, key) = self.nodes[z].entry;
         self.positions[id] = NOT_IN_HEAP;
 
         /* 4) choose a new min root and consolidate */
         if self.n == 0 {
-            self.min_root = None; // heap became empty
+            self.min_root = None; // heap is now empty
         } else {
-            self.min_root = Some(succ); // provisional pointer
-            self.update_min(succ); // ← ensure it’s the true min
-            self.consolidate(); // merge equal-degree roots
+            /* only change the pointer if we just removed the min */
+            if self.min_root == Some(z) {
+                self.min_root = Some(successor);
+            }
+            self.consolidate(); // rebuild and set true min
         }
 
         Some((id, key))

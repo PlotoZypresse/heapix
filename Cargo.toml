@@ -1,6 +1,6 @@
 [package]
 name = "heapix"
-version = "0.4.11"
+version = "0.4.12"
 edition = "2021"
 authors = ["PlotoZypresse"]
 description = "A library providing heap data structures"
