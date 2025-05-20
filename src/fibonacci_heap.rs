@@ -4,10 +4,6 @@
 use std::cmp::Ordering;
 const NOT_IN_HEAP: usize = usize::MAX;
 
-/* -------------------------------------------------------------------------- */
-/* Node                                                                      */
-/* -------------------------------------------------------------------------- */
-
 #[derive(Clone)]
 struct Node<K> {
     entry: (usize, K),
@@ -33,15 +29,13 @@ impl<K: PartialOrd + Copy> Node<K> {
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Heap                                                                       */
-/* -------------------------------------------------------------------------- */
-
 pub struct FibHeap<K> {
     nodes: Vec<Node<K>>,
     positions: Vec<usize>, // id → node index | NOT_IN_HEAP
     min_root: Option<usize>,
     n: usize,
+    scratch_roots: Vec<usize>,
+    scratch_aux: Vec<Option<usize>>,
 }
 
 impl<K: PartialOrd + Copy> FibHeap<K> {
@@ -52,6 +46,8 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
             positions: Vec::new(),
             min_root: None,
             n: 0,
+            scratch_roots: Vec::new(),
+            scratch_aux: Vec::new(),
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -79,7 +75,7 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 
     pub fn insert(&mut self, (id, key): (usize, K)) {
-        assert!(
+        debug_assert!(
             id >= self.positions.len() || self.positions[id] == NOT_IN_HEAP,
             "duplicate id {} inserted",
             id
@@ -146,23 +142,17 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 
     pub fn decrease_key(&mut self, id: usize, new_key: K) {
-        let idx = *self.positions.get(id).unwrap_or(&NOT_IN_HEAP);
-        assert!(idx != NOT_IN_HEAP, "id {} not in heap", id);
-        assert!(
-            self.nodes[idx].entry.1.partial_cmp(&new_key).unwrap() == Ordering::Greater,
-            "new key must be smaller"
-        );
+        // get the node index more directly
+        let idx = self.positions[id];
+        // one fewer method call vs. partial_cmp+unwrap
+        debug_assert!(self.nodes[idx].entry.1 > new_key, "new key must be smaller");
 
+        // update the key
         self.nodes[idx].entry.1 = new_key;
 
+        // only if it has a parent—and its key is now smaller—cut & cascade
         if let Some(p) = self.nodes[idx].parent {
-            if self.nodes[idx]
-                .entry
-                .1
-                .partial_cmp(&self.nodes[p].entry.1)
-                .unwrap()
-                == Ordering::Less
-            {
+            if self.nodes[idx].entry.1 < self.nodes[p].entry.1 {
                 self.cut(idx, p);
                 self.cascading_cut(p);
             }
@@ -274,10 +264,15 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     /// Consolidate the root list: combine trees of equal degree until each
     /// degree occurs at most once.
     fn consolidate(&mut self) {
-        let Some(start) = self.min_root else { return };
+        // early exit
+        let start = match self.min_root {
+            Some(i) => i,
+            None => return,
+        };
 
-        /* ---------- 1. gather all current roots ---------- */
-        let mut roots = Vec::new();
+        // ── 1) take the pre-allocated roots Vec out, clear it, fill it ──
+        let mut roots = std::mem::take(&mut self.scratch_roots);
+        roots.clear();
         let mut w = start;
         loop {
             roots.push(w);
@@ -287,54 +282,61 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
             }
         }
 
-        /* aux[d] will hold at most one root of degree d */
+        // ── 2) make sure scratch_aux is sized & zeroed ──
         let max_deg = (self.n as f64).log2().ceil() as usize + 2;
-        let mut aux: Vec<Option<usize>> = vec![None; max_deg];
+        if self.scratch_aux.len() < max_deg {
+            self.scratch_aux.resize(max_deg, None);
+        }
+        for slot in &mut self.scratch_aux {
+            *slot = None;
+        }
 
-        /* ---------- 2. meld equal-degree trees ---------- */
-        /* meld equal-degree trees */
-        /* meld equal-degree trees */
-        for mut x in roots {
-            if self.nodes[x].parent.is_some() {
-                continue; // became child earlier
+        // ── 3) do all the degree-linking in scratch_aux ──
+        for &root_idx in &roots {
+            // skip nodes that got linked as children
+            if self.nodes[root_idx].parent.is_some() {
+                continue;
             }
+            let mut x = root_idx;
             let mut d = self.nodes[x].degree;
             loop {
-                /* ---------- NEW guard ---------- */
-                if d >= aux.len() {
-                    aux.resize(d + 1, None);
+                // grow aux if needed
+                if d >= self.scratch_aux.len() {
+                    self.scratch_aux.resize(d + 1, None);
                 }
-                /* -------------------------------- */
-
-                if aux[d].is_none() {
-                    aux[d] = Some(x);
+                if self.scratch_aux[d].is_none() {
+                    self.scratch_aux[d] = Some(x);
                     break;
                 }
-
-                let mut y = aux[d].take().unwrap();
+                let mut y = self.scratch_aux[d].take().unwrap();
                 if self.nodes[y].entry.1 < self.nodes[x].entry.1 {
-                    std::mem::swap(&mut x, &mut y); // keep smaller key in x
+                    std::mem::swap(&mut x, &mut y);
                 }
-                self.link(y, x); // y becomes child of x
-                d += 1; // x’s degree just grew
+                // this borrows &mut self, but no scratch_roots borrow is active
+                self.link(y, x);
+                d += 1;
             }
         }
 
-        /* ---------- 3. rebuild ONE fresh root ring ---------- */
-        self.min_root = None; // we’ll discover the new min
-        for idx in aux.into_iter().flatten() {
-            // isolate the node first
-            self.nodes[idx].left = idx;
-            self.nodes[idx].right = idx;
-            self.nodes[idx].parent = None;
-
-            // splice into root ring & update minimum pointer
-            self.add_to_root(idx);
-            self.update_min(idx);
+        // ── 4) rebuild the root ring by taking scratch_aux out ──
+        let aux = std::mem::take(&mut self.scratch_aux);
+        self.min_root = None;
+        for opt in aux.iter() {
+            if let Some(idx) = *opt {
+                self.nodes[idx].left = idx;
+                self.nodes[idx].right = idx;
+                self.nodes[idx].parent = None;
+                // this also borrows &mut self, but aux is local now
+                self.add_to_root(idx);
+            }
         }
 
+        // put our buffers back for the next call
+        self.scratch_aux = aux;
+        self.scratch_roots = roots;
+
         #[cfg(debug_assertions)]
-        self.assert_root_ring(); // O(roots) sanity check
+        self.assert_root_ring();
     }
 
     #[cfg(debug_assertions)]
