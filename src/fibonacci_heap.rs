@@ -279,18 +279,18 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
 
         /* ---------- 2. meld equal-degree trees ---------- */
         /* meld equal-degree trees */
+        /* meld equal-degree trees */
         for mut x in roots {
             if self.nodes[x].parent.is_some() {
-                continue;
+                continue; // became child earlier
             }
-
             let mut d = self.nodes[x].degree;
             loop {
-                // ───── NEW guard ─────
+                /* ---------- NEW guard ---------- */
                 if d >= aux.len() {
                     aux.resize(d + 1, None);
                 }
-                // ─────────────────────
+                /* -------------------------------- */
 
                 if aux[d].is_none() {
                     aux[d] = Some(x);
@@ -298,19 +298,11 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
                 }
 
                 let mut y = aux[d].take().unwrap();
-                if self.nodes[y]
-                    .entry
-                    .1
-                    .partial_cmp(&self.nodes[x].entry.1)
-                    .unwrap()
-                    == Ordering::Less
-                {
-                    std::mem::swap(&mut x, &mut y);
+                if self.nodes[y].entry.1 < self.nodes[x].entry.1 {
+                    std::mem::swap(&mut x, &mut y); // keep smaller key in x
                 }
-                self.link(y, x);
-                d += 1;
-                // (no need to resize here any more – the loop will do it
-                //  at the top before the next access)
+                self.link(y, x); // y becomes child of x
+                d += 1; // x’s degree just grew
             }
         }
 
