@@ -292,14 +292,22 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 
     fn cut(&mut self, idx: usize, parent: usize) {
-        if self.nodes[idx].right == idx {
-            self.nodes[parent].child = None;
-        } else {
-            if self.nodes[parent].child == Some(idx) {
-                self.nodes[parent].child = Some(self.nodes[idx].right);
+        // If idx is the pointer stored in parent.child, fix that pointer first
+        if self.nodes[parent].child == Some(idx) {
+            if self.nodes[idx].right == idx {
+                // idx was the only child
+                self.nodes[parent].child = None;
+            } else {
+                let next = self.nodes[idx].right; // save sibling **first**
+                self.detach(idx); // now safe to detach
+                self.nodes[parent].child = Some(next);
             }
+        } else {
+            // idx isn’t the designated child pointer; just unlink it
             self.detach(idx);
         }
+
+        // bookkeeping
         self.nodes[parent].degree -= 1;
         self.nodes[idx].parent = None;
         self.nodes[idx].mark = false;
