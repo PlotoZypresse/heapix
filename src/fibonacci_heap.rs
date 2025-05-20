@@ -103,17 +103,18 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
     }
 
     pub fn delete_min(&mut self) -> Option<(usize, K)> {
-        let z = self.min_root?; // empty ⇢ None
+        /* 0) nothing to do if the heap is empty */
+        let z = self.min_root?; // returns None when empty
 
-        /* 1) promote children */
+        /* 1) promote every child of z to the root list */
         if let Some(child0) = self.nodes[z].child {
             let mut c = child0;
             loop {
-                let next = self.nodes[c].right;
-                self.detach(c);
+                let next = self.nodes[c].right; // save before detach
+                self.detach(c); // unlink from child list
                 self.nodes[c].parent = None;
                 self.nodes[c].mark = false;
-                self.add_to_root(c);
+                self.add_to_root(c); // add to root ring
                 if next == child0 {
                     break;
                 }
@@ -122,20 +123,24 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
             self.nodes[z].child = None;
         }
 
-        /* 2) remove z itself from root list */
-        let succ = self.nodes[z].right; // save before detach
-        self.detach(z);
+        /* 2) remove z itself from the root list */
+        let succ = self.nodes[z].right; // successor root
+        self.detach(z); // unlink z
 
+        /* 3) book-keeping for the item we’re returning */
         self.n -= 1;
         let (id, key) = self.nodes[z].entry;
         self.positions[id] = NOT_IN_HEAP;
 
+        /* 4) choose a new min root and consolidate */
         if self.n == 0 {
-            self.min_root = None;
+            self.min_root = None; // heap became empty
         } else {
-            self.min_root = Some(succ);
-            self.consolidate();
+            self.min_root = Some(succ); // provisional pointer
+            self.update_min(succ); // ← ensure it’s the true min
+            self.consolidate(); // merge equal-degree roots
         }
+
         Some((id, key))
     }
 
