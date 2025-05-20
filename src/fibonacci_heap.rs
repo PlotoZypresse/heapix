@@ -246,6 +246,9 @@ impl<K: PartialOrd + Copy> FibHeap<K> {
 
         // Process each root
         for mut x in roots {
+            if self.nodes[x].parent.is_some() {
+                continue;
+            }
             let mut d = self.nodes[x].degree;
             loop {
                 match aux[d] {
